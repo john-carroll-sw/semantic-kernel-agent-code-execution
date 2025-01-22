@@ -19,6 +19,7 @@ from semantic_kernel.contents.utils.author_role import AuthorRole
 from semantic_kernel.functions.kernel_function_decorator import kernel_function
 from semantic_kernel.functions.kernel_function_from_prompt import KernelFunctionFromPrompt
 from semantic_kernel.kernel import Kernel
+from logging_utils import log_message, log_flow, log_from_agent, log_separator
 
 # Load environment variables
 dotenv.load_dotenv()
@@ -33,27 +34,6 @@ logging.basicConfig(
     level=logging.CRITICAL, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-
-def log_message(message):
-    COLORS = {"MESSAGE": "\033[95m", "ENDC": "\033[0m"}  # Reset
-    print(f"{COLORS['MESSAGE']}{message}{COLORS['ENDC']}")
-
-def log_flow(from_agent, to_agent):
-    COLORS = {
-        "FROM_AGENT": "\033[94m",  # Blue
-        "TO_AGENT": "\033[92m",  # Green
-        "ENDC": "\033[0m",  # Reset
-    }
-    print(
-        f"{COLORS['FROM_AGENT']}{from_agent.capitalize()}{COLORS['ENDC']} (to {COLORS['TO_AGENT']}{to_agent.capitalize() or '*'}{COLORS['ENDC']}): \n"
-    )
-
-def log_separator():
-    YELLOW = "\033[93m"
-    ENDC = "\033[0m"
-    print(
-        f"{YELLOW}>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>{ENDC}\n"
-    )
 
 ###################################################################
 # The following sample demonstrates how to create a simple,       #
@@ -216,7 +196,7 @@ async def main():
         async for response in chat.invoke():
             log_separator()
             log_message(f"Invoking {response.name} agent")
-            log_flow(response.role, response.name)
+            log_from_agent(response.name)
             print(f"\033[94m{response.content}'\n")
 
         if chat.is_complete:
