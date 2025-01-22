@@ -30,7 +30,8 @@ from logging_utils import log_message, log_flow, log_separator
 # Config
 dotenv.load_dotenv()
 streaming = False
-# pool_management_endpoint = os.getenv("POOL_MANAGEMENT_ENDPOINT")
+USE_CODE_INTERPRETER_SESSIONS_TOOL = False  # Set to False to use CodeExecutionPlugin
+pool_management_endpoint = os.getenv("POOL_MANAGEMENT_ENDPOINT")
 azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
 azure_openai_api_key = os.getenv("AZURE_OPENAI_API_KEY")
 azure_openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION")
@@ -163,16 +164,17 @@ async def main():
         )
     )
 
-    kernel.add_plugin(plugin_name="CodeExecutionPlugin", plugin=CodeExecutionPlugin())
-
-    # # Add the code interpreter sessions pool to the Kernel
-    # kernel.add_plugin(
-    #     plugin_name="CodeInterpreterSessionsTool",
-    #     plugin=SessionsPythonTool(
-    #         auth_callback=auth_callback_factory("https://dynamicsessions.io/.default"),
-    #         pool_management_endpoint=pool_management_endpoint,
-    #     ),
-    # )
+    if USE_CODE_INTERPRETER_SESSIONS_TOOL:
+        # Add the code interpreter sessions pool to the Kernel
+        kernel.add_plugin(
+            plugin_name="CodeInterpreterSessionsTool",
+            plugin=SessionsPythonTool(
+                auth_callback=auth_callback_factory("https://dynamicsessions.io/.default"),
+                pool_management_endpoint=pool_management_endpoint,
+            ),
+        )
+    else:
+        kernel.add_plugin(plugin_name="CodeExecutionPlugin", plugin=CodeExecutionPlugin())
 
     # Create the agent with specific instructions
     coder_agent = ChatCompletionAgent(
@@ -187,24 +189,12 @@ async def main():
             All necessary libraries have already been installed.
             Ensure the response to the user is readable and does not contain any code.
         """,
-        # instructions="""
-        #     You are a CodeExecutor agent.
-        #     You have access to an IPython kernel to execute Python code. 
-        #     Your output should be the result from executing valid python code. 
-        #     This valid code will be executed in a sandbox, resulting in result, stdout, or stderr. 
-        #     All necessary libraries have already been installed.
-        #     Execute the code given to you, using the output, return a chat response to the user.
-        #     Ensure the response to the user is readable to a human and there is not any code.
-        #     If you do not call a function, do not hallucinate the response of a code execution, 
-        #     instead if you cannot run code simply say you cannot run code.
-        # """,
         execution_settings=AzureChatPromptExecutionSettings(
             service_id="coder_agent",
             temperature=0.0,
             max_tokens=1000,
-            function_choice_behavior=FunctionChoiceBehavior.Auto(
-                filters={"included_plugins": ["CodeExecutionPlugin"]}
-                # filters={"included_plugins": ["CodeInterpreterSessionsTool"]}
+            function_choice_behavior=FunctionChoiceBehavior.Required(
+                filters={"included_plugins": ["CodeInterpreterSessionsTool"]} if USE_CODE_INTERPRETER_SESSIONS_TOOL else {"included_plugins": ["CodeExecutionPlugin"]}
             ),
         ),
     )

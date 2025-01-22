@@ -25,29 +25,34 @@ from semantic_kernel.connectors.ai.open_ai.prompt_execution_settings.azure_chat_
 from semantic_kernel.connectors.ai.open_ai.services.azure_chat_completion import (
     AzureChatCompletion,
 )
-from semantic_kernel.contents.chat_history import ChatHistory
 from semantic_kernel.contents.chat_message_content import ChatMessageContent
+from semantic_kernel.core_plugins.sessions_python_tool.sessions_python_plugin import (
+    SessionsPythonTool,
+)
 from semantic_kernel.contents.utils.author_role import AuthorRole
 from semantic_kernel.functions.kernel_function_from_prompt import KernelFunctionFromPrompt
 from semantic_kernel.exceptions.function_exceptions import FunctionExecutionException
 from logging_utils import log_message, log_flow, log_from_agent, log_separator
+from unsafe_code_execution_plugin import UnsafeCodeExecutionPlugin
 
 # Load environment variables
 dotenv.load_dotenv()
 
 # Config
-streaming = False
+USE_CODE_INTERPRETER_SESSIONS_TOOL = False  # Set to False to use CodeExecutionPlugin
+pool_management_endpoint = os.getenv("POOL_MANAGEMENT_ENDPOINT")
 azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
 azure_openai_api_key = os.getenv("AZURE_OPENAI_API_KEY")
 azure_openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION")
 azure_openai_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+pool_management_endpoint = os.getenv("POOL_MANAGEMENT_ENDPOINT")
 
 CODEWRITER_NAME = "CodeWriter"
 CODEEXECUTOR_NAME = "CodeExecutor"
 
 # Configure logging
 logging.basicConfig(
-    level=logging.CRITICAL, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -79,6 +84,7 @@ def auth_callback_factory(scope):
 
     return auth_callback
 
+
 class CodeExecutionPlugin:
     """
     A plugin that safely executes Python code in an isolated environment.
@@ -102,6 +108,8 @@ class CodeExecutionPlugin:
             # Save the generated code to a file
             with open("generated_code.py", "w") as file:
                 file.write(code)
+                
+            print(f"Generated code:\n{code}")
 
             # Restricted execution: No built-in functions, no access to external modules
             safe_globals = {"__builtins__": {}}  # Block built-ins
@@ -134,33 +142,20 @@ def _create_kernel_with_chat_completion(service_id: str) -> Kernel:
             api_version=azure_openai_api_version,
         )
     )
-    return kernel
-
-async def invoke_agent(
-    agent: ChatCompletionAgent, to_agent: str, input: str, history: ChatHistory
-):
-    """Invoke the agent with the user input."""
-    history.add_user_message(input)
-
-    if streaming:
-        contents = []
-        content_name = ""
-        async for content in agent.invoke_stream(history):
-            content_name = content.name
-            contents.append(content)
-        streaming_chat_message = reduce(lambda first, second: first + second, contents)
-        log_flow(content_name, to_agent)
-        print(f"\033[94m{streaming_chat_message}'\n")
-        history.add_message(content)
+    
+    if USE_CODE_INTERPRETER_SESSIONS_TOOL:
+        # Add the code interpreter sessions pool to the Kernel
+        kernel.add_plugin(
+            plugin_name="CodeInterpreterSessionsTool",
+            plugin=SessionsPythonTool(
+                auth_callback=auth_callback_factory("https://dynamicsessions.io/.default"),
+                pool_management_endpoint=pool_management_endpoint,
+            ),
+        )
     else:
-        async for content in agent.invoke(history):
-            log_flow(content.name, to_agent)
-            print(f"\033[94m{content.content}'\n")
-            history.add_message(content)
-
-    if history.messages:
-        last_message = history.messages[-1]
-    return last_message
+        kernel.add_plugin(plugin_name="CodeExecutionPlugin", plugin=CodeExecutionPlugin())
+    
+    return kernel
 
 async def main():
     agent_writer = ChatCompletionAgent(
@@ -197,15 +192,15 @@ async def main():
             You are entering a work session with other agents: {CODEWRITER_NAME}.
             Execute the code given to you, using the output, return a chat response to the user.
             Ensure the response to the user is readable to a human and there is not any code.
-            If you do not call a function, do not hallucinate the response of a code execution, 
+            YouIf you do not call a function, do not hallucinate the response of a code execution, 
             instead if you cannot run code simply say you cannot run code.
         """,
         execution_settings=AzureChatPromptExecutionSettings(
             service_id=CODEEXECUTOR_NAME,
             temperature=0.0,
             max_tokens=1000,
-            function_choice_behavior=FunctionChoiceBehavior.Auto(
-                filters={"included_plugins": ["CodeExecutionPlugin"]}
+            function_choice_behavior=FunctionChoiceBehavior.Required(
+                filters={"included_plugins": ["CodeInterpreterSessionsTool"]} if USE_CODE_INTERPRETER_SESSIONS_TOOL else {"included_plugins": ["CodeExecutionPlugin"]}
             ),
         ),
     )
@@ -213,7 +208,7 @@ async def main():
     selection_function = KernelFunctionFromPrompt(
         function_name="selection",
         prompt=f"""
-        Determine which participant takes the next turn in a conversation based on the the most recent participant.
+        Determine which participant takes the next turn in a conversation based on the most recent participant.
         State only the name of the participant to take the next turn.
         No participant should take more than one turn in a row.
 
@@ -224,7 +219,7 @@ async def main():
         Always follow these rules when selecting the next participant:
         - After user input, it is {CODEWRITER_NAME}'s turn.
         - After {CODEWRITER_NAME} replies, it is {CODEEXECUTOR_NAME}'s turn.
-        - After {CODEEXECUTOR_NAME} provides feedback, it is {CODEWRITER_NAME}'s turn.
+        - After {CODEEXECUTOR_NAME} replies, it is the user's turn.
 
         History:
         {{{{$history}}}}
@@ -307,6 +302,7 @@ async def main():
 
         if chat.is_complete:
             is_complete = True
+            print(chat.history)
             break
 
 if __name__ == "__main__":
