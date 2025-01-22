@@ -3,6 +3,7 @@
 import asyncio
 import os
 import dotenv
+import logging
 import pyperclip
 
 from semantic_kernel.agents import AgentGroupChat, ChatCompletionAgent
@@ -26,6 +27,33 @@ azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
 azure_openai_api_key = os.getenv("AZURE_OPENAI_API_KEY")
 azure_openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION")
 azure_openai_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+
+# Configure logging
+logging.basicConfig(
+    level=logging.CRITICAL, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+def log_message(message):
+    COLORS = {"MESSAGE": "\033[95m", "ENDC": "\033[0m"}  # Reset
+    print(f"{COLORS['MESSAGE']}{message}{COLORS['ENDC']}")
+
+def log_flow(from_agent, to_agent):
+    COLORS = {
+        "FROM_AGENT": "\033[94m",  # Blue
+        "TO_AGENT": "\033[92m",  # Green
+        "ENDC": "\033[0m",  # Reset
+    }
+    print(
+        f"{COLORS['FROM_AGENT']}{from_agent.capitalize()}{COLORS['ENDC']} (to {COLORS['TO_AGENT']}{to_agent.capitalize() or '*'}{COLORS['ENDC']}): \n"
+    )
+
+def log_separator():
+    YELLOW = "\033[93m"
+    ENDC = "\033[0m"
+    print(
+        f"{YELLOW}>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>{ENDC}\n"
+    )
 
 ###################################################################
 # The following sample demonstrates how to create a simple,       #
@@ -166,8 +194,8 @@ async def main():
             print("[Conversation has been reset]")
             continue
 
-        if user_input.startswith("@") and len(input) > 1:
-            file_path = input[1:]
+        if user_input.startswith("@") and len(user_input) > 1:
+            file_path = user_input[1:]
             try:
                 if not os.path.exists(file_path):
                     print(f"Unable to access file: {file_path}")
@@ -178,15 +206,22 @@ async def main():
                 print(f"Unable to access file: {file_path}")
                 continue
 
+        log_separator()
+        log_message("Received chat message")
+        log_flow("User", "")
+        print(f"{user_input}\n")
+
         await chat.add_chat_message(ChatMessageContent(role=AuthorRole.USER, content=user_input))
 
         async for response in chat.invoke():
-            print(f"\n# {response.role} - {response.name or '*'}: '{response.content}'")
+            log_separator()
+            log_message(f"Invoking {response.name} agent")
+            log_flow(response.role, response.name)
+            print(f"\033[94m{response.content}'\n")
 
         if chat.is_complete:
             is_complete = True
             break
-
 
 if __name__ == "__main__":
     asyncio.run(main())
