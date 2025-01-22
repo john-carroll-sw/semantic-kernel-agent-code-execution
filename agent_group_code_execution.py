@@ -33,19 +33,18 @@ from semantic_kernel.contents.utils.author_role import AuthorRole
 from semantic_kernel.functions.kernel_function_from_prompt import KernelFunctionFromPrompt
 from semantic_kernel.exceptions.function_exceptions import FunctionExecutionException
 from logging_utils import log_message, log_flow, log_from_agent, log_separator
-from unsafe_code_execution_plugin import UnsafeCodeExecutionPlugin
+from local_python_plugin import LocalPythonPlugin
 
 # Load environment variables
 dotenv.load_dotenv()
 
 # Config
-USE_CODE_INTERPRETER_SESSIONS_TOOL = False  # Set to False to use CodeExecutionPlugin
+USE_CODE_INTERPRETER_SESSIONS_TOOL = False  # Set to False to use LocalCodeExecutionTool
 pool_management_endpoint = os.getenv("POOL_MANAGEMENT_ENDPOINT")
 azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
 azure_openai_api_key = os.getenv("AZURE_OPENAI_API_KEY")
 azure_openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION")
 azure_openai_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
-pool_management_endpoint = os.getenv("POOL_MANAGEMENT_ENDPOINT")
 
 CODEWRITER_NAME = "CodeWriter"
 CODEEXECUTOR_NAME = "CodeExecutor"
@@ -85,52 +84,6 @@ def auth_callback_factory(scope):
     return auth_callback
 
 
-class CodeExecutionPlugin:
-    """
-    A plugin that safely executes Python code in an isolated environment.
-    """
-
-    def execute_code(self, code: str) -> str:
-        """
-        Executes provided Python code in a restricted environment.
-        Returns the local variables modified by the executed code.
-        """
-        logger.info("CodeExecutionPlugin: Executing code")
-        try:
-            # Save the code to a temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".py") as temp_file:
-                temp_file.write(code.encode())
-                temp_file_path = temp_file.name
-
-            # Log the generated code
-            logger.info(f"Generated code:\n{code}")
-
-            # Save the generated code to a file
-            with open("generated_code.py", "w") as file:
-                file.write(code)
-                
-            print(f"Generated code:\n{code}")
-
-            # Restricted execution: No built-in functions, no access to external modules
-            safe_globals = {"__builtins__": {}}  # Block built-ins
-            safe_locals = {}  # Create a local execution scope
-
-            # Read the code from the temporary file and execute it safely
-            with open(temp_file_path, "r") as file:
-                exec(file.read(), safe_globals, safe_locals)
-
-            # Return only defined variables (not execution metadata)
-            return str(
-                {
-                    key: safe_locals[key]
-                    for key in safe_locals
-                    if not key.startswith("__")
-                }
-            )
-        except Exception as e:
-            logger.error(f"CodeExecutionPlugin: Error executing code: {e}")
-            return f"Error executing code: {e}"
-
 def _create_kernel_with_chat_completion(service_id: str) -> Kernel:
     kernel = Kernel()
     kernel.add_service(
@@ -153,7 +106,7 @@ def _create_kernel_with_chat_completion(service_id: str) -> Kernel:
             ),
         )
     else:
-        kernel.add_plugin(plugin_name="CodeExecutionPlugin", plugin=CodeExecutionPlugin())
+        kernel.add_plugin(plugin_name="LocalCodeExecutionTool", plugin=LocalPythonPlugin())
     
     return kernel
 
@@ -192,7 +145,7 @@ async def main():
             You are entering a work session with other agents: {CODEWRITER_NAME}.
             Execute the code given to you, using the output, return a chat response to the user.
             Ensure the response to the user is readable to a human and there is not any code.
-            YouIf you do not call a function, do not hallucinate the response of a code execution, 
+            If you do not call a function, do not hallucinate the response of a code execution, 
             instead if you cannot run code simply say you cannot run code.
         """,
         execution_settings=AzureChatPromptExecutionSettings(
@@ -200,7 +153,7 @@ async def main():
             temperature=0.0,
             max_tokens=1000,
             function_choice_behavior=FunctionChoiceBehavior.Required(
-                filters={"included_plugins": ["CodeInterpreterSessionsTool"]} if USE_CODE_INTERPRETER_SESSIONS_TOOL else {"included_plugins": ["CodeExecutionPlugin"]}
+                filters={"included_plugins": ["CodeInterpreterSessionsTool"]} if USE_CODE_INTERPRETER_SESSIONS_TOOL else {"included_plugins": ["LocalCodeExecutionTool"]}
             ),
         ),
     )
@@ -219,7 +172,7 @@ async def main():
         Always follow these rules when selecting the next participant:
         - After user input, it is {CODEWRITER_NAME}'s turn.
         - After {CODEWRITER_NAME} replies, it is {CODEEXECUTOR_NAME}'s turn.
-        - After {CODEEXECUTOR_NAME} replies, it is the user's turn.
+        - After {CODEEXECUTOR_NAME} replies, it is done.
 
         History:
         {{{{$history}}}}

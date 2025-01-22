@@ -26,11 +26,12 @@ from semantic_kernel.core_plugins.sessions_python_tool.sessions_python_plugin im
 )
 from semantic_kernel.exceptions.function_exceptions import FunctionExecutionException
 from logging_utils import log_message, log_flow, log_separator
+from local_python_plugin import LocalPythonPlugin
 
 # Config
 dotenv.load_dotenv()
 streaming = False
-USE_CODE_INTERPRETER_SESSIONS_TOOL = False  # Set to False to use CodeExecutionPlugin
+USE_CODE_INTERPRETER_SESSIONS_TOOL = False  # Set to False to use LocalPythonPlugin
 pool_management_endpoint = os.getenv("POOL_MANAGEMENT_ENDPOINT")
 azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
 azure_openai_api_key = os.getenv("AZURE_OPENAI_API_KEY")
@@ -101,49 +102,6 @@ async def invoke_agent(
     return last_message
 
 
-class CodeExecutionPlugin:
-    """
-    A plugin that safely executes Python code in an isolated environment.
-    """
-
-    def execute_code(self, code: str) -> str:
-        """
-        Executes provided Python code in a restricted environment.
-        Returns the local variables modified by the executed code.
-        """
-        try:
-            # Save the code to a temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".py") as temp_file:
-                temp_file.write(code.encode())
-                temp_file_path = temp_file.name
-
-            # Log the generated code
-            logger.info(f"Generated code:\n{code}")
-
-            # Save the generated code to a file
-            with open("generated_code.py", "w") as file:
-                file.write(code)
-
-            # Restricted execution: No built-in functions, no access to external modules
-            safe_globals = {"__builtins__": {}}  # Block built-ins
-            safe_locals = {}  # Create a local execution scope
-
-            # Read the code from the temporary file and execute it safely
-            with open(temp_file_path, "r") as file:
-                exec(file.read(), safe_globals, safe_locals)
-
-            # Return only defined variables (not execution metadata)
-            return str(
-                {
-                    key: safe_locals[key]
-                    for key in safe_locals
-                    if not key.startswith("__")
-                }
-            )
-        except Exception as e:
-            return f"Error executing code: {e}"
-
-
 async def main():
     message = input("Enter your message: ")
 
@@ -174,7 +132,7 @@ async def main():
             ),
         )
     else:
-        kernel.add_plugin(plugin_name="CodeExecutionPlugin", plugin=CodeExecutionPlugin())
+        kernel.add_plugin(plugin_name="LocalCodeExecutionTool", plugin=LocalPythonPlugin())
 
     # Create the agent with specific instructions
     coder_agent = ChatCompletionAgent(
@@ -194,7 +152,7 @@ async def main():
             temperature=0.0,
             max_tokens=1000,
             function_choice_behavior=FunctionChoiceBehavior.Required(
-                filters={"included_plugins": ["CodeInterpreterSessionsTool"]} if USE_CODE_INTERPRETER_SESSIONS_TOOL else {"included_plugins": ["CodeExecutionPlugin"]}
+                filters={"included_plugins": ["CodeInterpreterSessionsTool"]} if USE_CODE_INTERPRETER_SESSIONS_TOOL else {"included_plugins": ["LocalCodeExecutionTool"]}
             ),
         ),
     )
