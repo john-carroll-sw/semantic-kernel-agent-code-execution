@@ -32,7 +32,7 @@ from local_python_plugin import LocalPythonPlugin
 dotenv.load_dotenv()
 streaming = False
 USE_CODE_INTERPRETER_SESSIONS_TOOL = False  # Set to False to use LocalPythonPlugin
-pool_management_endpoint = os.getenv("POOL_MANAGEMENT_ENDPOINT")
+azure_code_interpreter_pool_endpoint = os.getenv("AZURE_CODE_INTERPRETER_POOL_ENDPOINT")
 azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
 azure_openai_api_key = os.getenv("AZURE_OPENAI_API_KEY")
 azure_openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION")
@@ -128,7 +128,7 @@ async def main():
             plugin_name="CodeInterpreterSessionsTool",
             plugin=SessionsPythonTool(
                 auth_callback=auth_callback_factory("https://dynamicsessions.io/.default"),
-                pool_management_endpoint=pool_management_endpoint,
+                pool_management_endpoint=azure_code_interpreter_pool_endpoint,
             ),
         )
     else:
